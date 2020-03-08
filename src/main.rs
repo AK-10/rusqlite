@@ -1,9 +1,6 @@
 use std::{ io, process };
 use std::io::Write;
 
-// use crate::meta_command::{ MetaCommand, MetaCommandResult };
-// use crate::statement;
-
 #[derive(Debug)]
 enum MetaCommandResult {
     Success,
@@ -14,7 +11,7 @@ enum MetaCommandResult {
 struct MetaCommand {}
 
 impl MetaCommand {
-        pub fn process(command: String) -> MetaCommandResult {
+    pub fn process(command: String) -> MetaCommandResult {
         if command == ".exit" {
             // .exit
             MetaCommandResult::Success
@@ -78,7 +75,8 @@ fn main() {
             continue;
         }
 
-        // 最初のトークンで
+        // 最初のトークンでselect or insertを判断
+        // 別モジュールに切るべきだと思う
         let first_token = command.split_whitespace().nth(0).unwrap_or("").to_string();
         let statement = Statement::new(first_token);
         match statement.statement_type {

@@ -1,2 +1,2 @@
-mod meta_command;
-mod statement;
+pub mod meta_command;
+pub mod statement;
