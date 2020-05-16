@@ -36,6 +36,8 @@ typedef enum {
 
 typedef enum {
     PREPARE_SUCCESS,
+    PREPARE_NEGATIVE_ID,
+    PREPARE_STRING_TOO_LONG,
     PREPARE_SYNTAX_ERROR,
     PREPARE_UNRECOGNIZED_STATEMENT
 } PrepareResult;
@@ -49,8 +51,9 @@ typedef enum {
 // 内部表現として使う
 typedef struct {
     uint32_t id;
-    char username[COLUMN_USERNAME_SIZE];
-    char email[COLUMN_EMAIL_SIZE];
+    // null文字を含むため+1
+    char username[COLUMN_USERNAME_SIZE + 1];
+    char email[COLUMN_EMAIL_SIZE + 1];
 } Row;
 
 // 列のコンパクト表現のためのデータサイズ
@@ -124,6 +127,11 @@ void print_row(Row*);
 // - ページへのポインタの固定長配列を保持する
 // ========= part3 end ===========
 
+
+// ========= part4 start ===========
+PrepareResult prepare_insert(InputBuffer*, Statement*);
+
+// ========= part4 end ===========
 InputBuffer* new_input_buffer() {
     InputBuffer* input_buffer = (InputBuffer *)malloc(sizeof(InputBuffer));
     input_buffer->buffer = NULL;
@@ -166,21 +174,50 @@ MetaCommandResult do_meta_command(InputBuffer* input_buffer) {
     }
 }
 
+PrepareResult prepare_insert(InputBuffer* input_buffer, Statement* statement) {
+    statement->type = STATEMENT_INSERT;
+
+    // strtok(char *s1, const char *s2): split関数みたいなもん
+    // 呼び出しごとにトークンのポインタを一つずつ返す
+    // 2回目以降の呼び出しではs1にNULLを指定する
+    char* keyword = strtok(input_buffer->buffer, " ");
+    char* id_string = strtok(NULL, " ");
+    char* username = strtok(NULL, " ");
+    char* email = strtok(NULL, " ");
+
+    bool valid = !(id_string == NULL || username == NULL || email == NULL);
+
+    if (!valid) {
+        return PREPARE_SYNTAX_ERROR;
+    }
+
+    int id = atoi(id_string);
+    if (id < 0) {
+        return PREPARE_NEGATIVE_ID;
+    }
+    // strlen: ヌル文字を含めない文字列の長さ
+    if (strlen(username) > COLUMN_USERNAME_SIZE) {
+        return PREPARE_STRING_TOO_LONG;
+    }
+    if (strlen(username) > COLUMN_EMAIL_SIZE) {
+        return PREPARE_STRING_TOO_LONG;
+    }
+
+    statement->row_to_insert.id = id;
+    strcpy(statement->row_to_insert.username, username);
+    strcpy(statement->row_to_insert.email, email);
+
+    return PREPARE_SUCCESS;
+}
+
 PrepareResult prepare_statement(InputBuffer* input_buffer, Statement* statement) {
     if (strncmp(input_buffer->buffer, "insert", 6) == 0) {
-        statement->type = STATEMENT_INSERT;
         // 次のようなSQLに対応
         // insert 1 cstack foo@bar.com
-        int args_assigned = sscanf(
-            input_buffer->buffer, "insert %d %s %s",
-            &(statement->row_to_insert.id),
-            statement->row_to_insert.username,
-            statement->row_to_insert.email
-        );
-        if (args_assigned < 3) {
-            return PREPARE_SYNTAX_ERROR;
-        }
-        return PREPARE_SUCCESS;
+
+        // sscanfの問題点
+        // https://stackoverflow.com/questions/2430303/disadvantages-of-scanf
+        return prepare_insert(input_buffer, statement);
     }
     if (strncmp(input_buffer->buffer, "select", 6) == 0) {
         statement->type = STATEMENT_SELECT;
@@ -188,6 +225,8 @@ PrepareResult prepare_statement(InputBuffer* input_buffer, Statement* statement)
     }
     return PREPARE_UNRECOGNIZED_STATEMENT;
 }
+
+
 
 ExecuteResult execute_insert(Statement* statement, Table* table) {
     if (table->num_rows >= TABLE_MAX_ROWS) {
@@ -305,6 +344,12 @@ int main(int argc, char* argv[]) {
         switch (prepare_statement(input_buffer, &statement)) {
             case (PREPARE_SUCCESS):
                 break;
+            case (PREPARE_NEGATIVE_ID):
+                printf("ID must be positive.\n");
+                continue;
+            case (PREPARE_STRING_TOO_LONG):
+                printf("String is too long.\n");
+                continue;
             case (PREPARE_SYNTAX_ERROR):
                 printf("Syntax error. Could not parse statement.\n");
                 continue;

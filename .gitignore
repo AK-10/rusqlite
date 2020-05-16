@@ -1,2 +1,6 @@
 /target
 */**/.vscode
+
+c/**/vendor
+c/**/.bundle
+c/**/db
