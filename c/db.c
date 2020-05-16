@@ -110,6 +110,20 @@ typedef enum {
     EXECUTE_SUCCESS,
 } ExecuteResult;
 
+
+// Cursor オブジェクト
+// テーブル内の位置を表す
+// やることは以下
+// - テーブルの先頭にカーソルを作成する
+// - テーブルの終端にカーソルを作成する
+// - カーソルが指し示すデータ列へアクセスする
+// - カーソルを次の行に進める
+typedef struct {
+    Table* table;
+    uint32_t row_num;
+    bool end_of_table; // 最後の要素の一つ後の位置を指し示す
+} Cursor;
+
 // ========= part1 start ===========
 InputBuffer* new_input_buffer();
 void print_prompt();
@@ -127,7 +141,7 @@ ExecuteResult execute_statement(Statement*, Table*);
 void serialize_row(Row*, void*);
 void deserialize_row(void*, Row*);
 
-void* row_slot(Table*, uint32_t);
+// void* row_slot(Table*, uint32_t);
 void print_row(Row*);
 // 実際のところ，sqliteではデータをb-treeにするが，今回は簡単のため，配列で保持することにする
 // 実装計画は以下
@@ -152,6 +166,15 @@ Table* db_open(const char*);
 void db_close(Table*);
 void pager_flush(Pager*, uint32_t, uint32_t);
 // ========= part5 end ===========
+
+// ========= part6 start ===========
+Cursor* table_start(Table*);
+Cursor* table_end(Table*);
+void cursor_advance(Cursor* cursor);
+
+
+void* cursor_value(Cursor* cursor);
+// ========= part6 end ===========
 
 InputBuffer* new_input_buffer() {
     InputBuffer* input_buffer = (InputBuffer *)malloc(sizeof(InputBuffer));
@@ -256,19 +279,27 @@ ExecuteResult execute_insert(Statement* statement, Table* table) {
     }
 
     Row* row_to_insert = &(statement->row_to_insert);
+    Cursor* cursor = table_end(table);
 
-    serialize_row(row_to_insert, row_slot(table, table->num_rows));
+    serialize_row(row_to_insert, cursor_value(cursor));
     table->num_rows += 1;
+
+    free(cursor);
 
     return EXECUTE_SUCCESS;
 }
 
 ExecuteResult execute_select(Statement* statement, Table* table) {
+    Cursor* cursor = table_start(table);
+
     Row row;
-    for (uint32_t i = 0; i < table->num_rows; i++) {
-        deserialize_row(row_slot(table, i), &row);
+    while (!(cursor->end_of_table)) {
+        deserialize_row(cursor_value(cursor), &row);
         print_row(&row);
+        cursor_advance(cursor);
     }
+
+    free(cursor);
 
     return EXECUTE_SUCCESS;
 }
@@ -308,10 +339,11 @@ void deserialize_row(void* source, Row* destination) {
 // row_slotは次に割り当てる列のpageのメモリアドレスを返す
 // 列は複数のページに跨って存在しないほうが良い
 // あるページが割り当てられているメモリ番地の次の番地に次のページが割り当てられているとは限らないので扱いにくい
-void* row_slot(Table* table, uint32_t row_num) {
+void* cursor_value(Cursor* cursor) {
+    uint32_t row_num = cursor->row_num;
     uint32_t page_num = row_num / ROWS_PER_PAGE;
     
-    void* page = get_page(table->pager, page_num);
+    void* page = get_page(cursor->table->pager, page_num);
     uint32_t row_offset = row_num % ROWS_PER_PAGE;
     uint32_t byte_offset = row_offset * ROW_SIZE;
 
@@ -464,6 +496,31 @@ void pager_flush(Pager* pager, uint32_t page_num, uint32_t size) {
     if (bytes_written == -1) {
         printf("error writing: %d\n", errno);
         exit(EXIT_FAILURE);
+    }
+}
+
+Cursor* table_start(Table* table) {
+    Cursor* cursor = malloc(sizeof(Cursor));
+    cursor->table = table;
+    cursor->row_num = 0;
+    cursor->end_of_table = (table->num_rows == 0);
+
+    return cursor;
+}
+
+Cursor* table_end(Table* table) {
+    Cursor* cursor = malloc(sizeof(Cursor));
+    cursor->table = table;
+    cursor->row_num = table->num_rows;
+    cursor->end_of_table = true;
+
+    return cursor;
+}
+
+void cursor_advance(Cursor* cursor) {
+    cursor->row_num += 1;
+    if (cursor->row_num >= cursor->table->num_rows) {
+        cursor->end_of_table = true;
     }
 }
 
