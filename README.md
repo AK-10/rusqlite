@@ -1,4 +1,4 @@
-# rusqlite
+# sqlitelite
 
-writing a sqlite clone from scratch in Rust.
+writing a sqlite clone from scratch.
 inspired by https://cstack.github.io/db_tutorial/
